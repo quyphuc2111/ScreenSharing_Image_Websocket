@@ -28,22 +28,31 @@ fn capture_screen() -> Option<ScreenFrame> {
     let width = image.width();
     let height = image.height();
     
-    // Convert to JPEG with quality 50 for better performance
-    let mut jpeg_data = Cursor::new(Vec::new());
-    let encoder = JpegEncoder::new_with_quality(&mut jpeg_data, 50);
+    // Resize to 1280px width max for better performance
+    let (new_width, new_height) = if width > 1280 {
+        let ratio = 1280.0 / width as f32;
+        (1280, (height as f32 * ratio) as u32)
+    } else {
+        (width, height)
+    };
     
-    image::DynamicImage::ImageRgba8(
+    let img = image::DynamicImage::ImageRgba8(
         image::RgbaImage::from_raw(width, height, image.into_raw())?
-    )
-    .write_with_encoder(encoder)
-    .ok()?;
+    );
+    
+    let resized = img.resize(new_width, new_height, image::imageops::FilterType::Nearest);
+    
+    // Convert to JPEG with quality 40 for better performance
+    let mut jpeg_data = Cursor::new(Vec::new());
+    let encoder = JpegEncoder::new_with_quality(&mut jpeg_data, 40);
+    resized.write_with_encoder(encoder).ok()?;
     
     let base64_data = STANDARD.encode(jpeg_data.into_inner());
     
     Some(ScreenFrame {
         data: base64_data,
-        width,
-        height,
+        width: new_width,
+        height: new_height,
     })
 }
 
@@ -83,7 +92,7 @@ async fn start_teacher_server(app: tauri::AppHandle, port: u16, fps: u32) -> Res
     
     IS_SHARING.store(true, Ordering::SeqCst);
     
-    let (tx, _) = broadcast::channel::<String>(16);
+    let (tx, _) = broadcast::channel::<String>(32);
     let tx_clone = tx.clone();
     
     // Screen capture task

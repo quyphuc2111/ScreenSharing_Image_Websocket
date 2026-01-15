@@ -33,16 +33,20 @@ function App() {
       const canvas = canvasRef.current;
       if (!canvas) return;
 
-      const ctx = canvas.getContext("2d");
+      const ctx = canvas.getContext("2d", { alpha: false });
       if (!ctx) return;
 
-      const img = new Image();
-      img.onload = () => {
-        canvas.width = frame.width;
-        canvas.height = frame.height;
-        ctx.drawImage(img, 0, 0);
-      };
-      img.src = `data:image/jpeg;base64,${frame.data}`;
+      // Use ImageBitmap for faster rendering
+      fetch(`data:image/jpeg;base64,${frame.data}`)
+        .then(res => res.blob())
+        .then(blob => createImageBitmap(blob))
+        .then(bitmap => {
+          canvas.width = frame.width;
+          canvas.height = frame.height;
+          ctx.drawImage(bitmap, 0, 0);
+          bitmap.close();
+        })
+        .catch(console.error);
     });
 
     const unlistenStatus = listen<string>("connection-status", (event) => {
