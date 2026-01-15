@@ -6,7 +6,7 @@ import "./App.css";
 type Mode = "select" | "teacher" | "student";
 
 interface ScreenFrame {
-  data: string;
+  data: number[]; // JPEG bytes array
   width: number;
   height: number;
 }
@@ -51,12 +51,8 @@ function App() {
         });
         if (!ctx) return;
 
-        // Decode base64 to ArrayBuffer
-        const binaryString = atob(frame.data);
-        const bytes = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) {
-          bytes[i] = binaryString.charCodeAt(i);
-        }
+        // Convert number array to Uint8Array
+        const bytes = new Uint8Array(frame.data);
         const blob = new Blob([bytes], { type: 'image/jpeg' });
         
         // Create ImageBitmap directly from blob (async decode)

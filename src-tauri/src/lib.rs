@@ -1,4 +1,3 @@
-use base64::{engine::general_purpose::STANDARD, Engine};
 use futures_util::{SinkExt, StreamExt};
 use image::codecs::jpeg::JpegEncoder;
 use xcap::Monitor;
@@ -15,7 +14,8 @@ static IS_CONNECTED: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Serialize, Deserialize)]
 struct ScreenFrame {
-    data: String, // base64 encoded JPEG
+    #[serde(with = "serde_bytes")]
+    data: Vec<u8>, // Raw JPEG bytes
     width: u32,
     height: u32,
 }
@@ -51,10 +51,8 @@ fn capture_screen() -> Option<ScreenFrame> {
     let encoder = JpegEncoder::new_with_quality(&mut jpeg_data, 35);
     resized.write_with_encoder(encoder).ok()?;
     
-    let base64_data = STANDARD.encode(jpeg_data.into_inner());
-    
     Some(ScreenFrame {
-        data: base64_data,
+        data: jpeg_data.into_inner(),
         width: new_width,
         height: new_height,
     })
@@ -130,7 +128,8 @@ async fn start_teacher_server(app: tauri::AppHandle, port: u16, fps: u32) -> Res
                         
                         while IS_SHARING.load(Ordering::SeqCst) {
                             if let Ok(msg) = rx.recv().await {
-                                if write.send(Message::Text(msg)).await.is_err() {
+                                // Send as binary for better performance
+                                if write.send(Message::Binary(msg.into_bytes())).await.is_err() {
                                     break;
                                 }
                             }
@@ -174,8 +173,8 @@ async fn connect_to_teacher(app: tauri::AppHandle, address: String) -> Result<()
     tokio::spawn(async move {
         while IS_CONNECTED.load(Ordering::SeqCst) {
             match read.next().await {
-                Some(Ok(Message::Text(text))) => {
-                    if let Ok(frame) = serde_json::from_str::<ScreenFrame>(&text) {
+                Some(Ok(Message::Binary(data))) => {
+                    if let Ok(frame) = serde_json::from_slice::<ScreenFrame>(&data) {
                         let _ = app.emit("screen-frame", frame);
                     }
                 }
