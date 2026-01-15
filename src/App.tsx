@@ -22,31 +22,70 @@ function App() {
   const [connectedClients, setConnectedClients] = useState<string[]>([]);
   const [status, setStatus] = useState("");
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const isRenderingRef = useRef(false);
+  const frameQueueRef = useRef<ScreenFrame[]>([]);
 
   useEffect(() => {
     invoke<string>("get_local_ip").then(setLocalIp).catch(console.error);
   }, []);
 
   useEffect(() => {
-    const unlistenFrame = listen<ScreenFrame>("screen-frame", (event) => {
-      const frame = event.payload;
+    const renderFrame = async (frame: ScreenFrame) => {
+      if (isRenderingRef.current) {
+        // Skip if already rendering, keep only latest frame
+        frameQueueRef.current = [frame];
+        return;
+      }
+
+      isRenderingRef.current = true;
       const canvas = canvasRef.current;
-      if (!canvas) return;
+      if (!canvas) {
+        isRenderingRef.current = false;
+        return;
+      }
 
-      const ctx = canvas.getContext("2d", { alpha: false });
-      if (!ctx) return;
+      try {
+        const ctx = canvas.getContext("2d", { 
+          alpha: false,
+          desynchronized: true 
+        });
+        if (!ctx) return;
 
-      // Use ImageBitmap for faster rendering
-      fetch(`data:image/jpeg;base64,${frame.data}`)
-        .then(res => res.blob())
-        .then(blob => createImageBitmap(blob))
-        .then(bitmap => {
+        // Decode base64 to ArrayBuffer
+        const binaryString = atob(frame.data);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        const blob = new Blob([bytes], { type: 'image/jpeg' });
+        
+        // Create ImageBitmap directly from blob (async decode)
+        const bitmap = await createImageBitmap(blob);
+        
+        // Resize canvas only if needed
+        if (canvas.width !== frame.width || canvas.height !== frame.height) {
           canvas.width = frame.width;
           canvas.height = frame.height;
-          ctx.drawImage(bitmap, 0, 0);
-          bitmap.close();
-        })
-        .catch(console.error);
+        }
+        
+        ctx.drawImage(bitmap, 0, 0);
+        bitmap.close();
+      } catch (e) {
+        console.error("Render error:", e);
+      } finally {
+        isRenderingRef.current = false;
+        
+        // Process next frame if queued
+        const nextFrame = frameQueueRef.current.pop();
+        if (nextFrame) {
+          frameQueueRef.current = [];
+          renderFrame(nextFrame);
+        }
+      }
+    };
+
+    const unlistenFrame = listen<ScreenFrame>("screen-frame", (event) => {
+      renderFrame(event.payload);
     });
 
     const unlistenStatus = listen<string>("connection-status", (event) => {
@@ -153,6 +192,9 @@ function App() {
               min="1"
               max="30"
             />
+            <span style={{fontSize: '0.85rem', color: '#888', marginLeft: '0.5rem'}}>
+              (Khuyến nghị: 8-12)
+            </span>
           </div>
         </div>
 
