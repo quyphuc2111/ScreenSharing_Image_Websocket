@@ -1,7 +1,7 @@
 use base64::{engine::general_purpose::STANDARD, Engine};
 use futures_util::{SinkExt, StreamExt};
 use image::codecs::jpeg::JpegEncoder;
-use screenshots::Screen;
+use xcap::Monitor;
 use serde::{Deserialize, Serialize};
 use std::io::Cursor;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -21,30 +21,34 @@ struct ScreenFrame {
 }
 
 fn capture_screen() -> Option<ScreenFrame> {
-    let screens = Screen::all().ok()?;
-    let screen = screens.first()?;
-    let image = screen.capture().ok()?;
+    let monitors = Monitor::all().ok()?;
+    let monitor = monitors.first()?;
+    let buffer = monitor.capture_image().ok()?;
     
-    let width = image.width();
-    let height = image.height();
+    let width = buffer.width();
+    let height = buffer.height();
     
-    // Resize to 1280px width max for better performance
-    let (new_width, new_height) = if width > 1280 {
-        let ratio = 1280.0 / width as f32;
-        (1280, (height as f32 * ratio) as u32)
+    // Convert to DynamicImage
+    let image = image::DynamicImage::ImageRgba8(buffer);
+    
+    // Resize to 960px width max for better performance
+    let (new_width, new_height) = if width > 960 {
+        let ratio = 960.0 / width as f32;
+        (960, (height as f32 * ratio) as u32)
     } else {
         (width, height)
     };
     
-    let img = image::DynamicImage::ImageRgba8(
-        image::RgbaImage::from_raw(width, height, image.into_raw())?
-    );
+    // Resize if needed
+    let resized = if width > 960 {
+        image.resize(new_width, new_height, image::imageops::FilterType::Triangle)
+    } else {
+        image
+    };
     
-    let resized = img.resize(new_width, new_height, image::imageops::FilterType::Nearest);
-    
-    // Convert to JPEG with quality 40 for better performance
+    // Convert to JPEG with quality 35
     let mut jpeg_data = Cursor::new(Vec::new());
-    let encoder = JpegEncoder::new_with_quality(&mut jpeg_data, 40);
+    let encoder = JpegEncoder::new_with_quality(&mut jpeg_data, 35);
     resized.write_with_encoder(encoder).ok()?;
     
     let base64_data = STANDARD.encode(jpeg_data.into_inner());
