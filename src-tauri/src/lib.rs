@@ -60,9 +60,47 @@ fn capture_screen() -> Option<ScreenFrame> {
 
 #[tauri::command]
 fn get_local_ip() -> Result<String, String> {
-    local_ip_address::local_ip()
-        .map(|ip| ip.to_string())
-        .map_err(|e| e.to_string())
+    // Get all network interfaces
+    let interfaces = if_addrs::get_if_addrs().map_err(|e| e.to_string())?;
+    
+    // Priority: 192.168.x.x > 10.x.x.x > 172.16-31.x.x > others
+    let mut candidates: Vec<String> = Vec::new();
+    
+    for iface in interfaces {
+        // Skip loopback
+        if iface.is_loopback() {
+            continue;
+        }
+        
+        // Only IPv4
+        if let if_addrs::IfAddr::V4(ref addr) = iface.addr {
+            let ip = addr.ip.to_string();
+            
+            // Prioritize private network IPs
+            if ip.starts_with("192.168.") {
+                return Ok(ip); // Best match, return immediately
+            } else if ip.starts_with("10.") {
+                candidates.insert(0, ip); // High priority
+            } else if ip.starts_with("172.") {
+                // Check if it's in 172.16.0.0 - 172.31.255.255 range
+                if let Some(second_octet) = ip.split('.').nth(1) {
+                    if let Ok(num) = second_octet.parse::<u8>() {
+                        if (16..=31).contains(&num) {
+                            candidates.insert(0, ip);
+                            continue;
+                        }
+                    }
+                }
+                candidates.push(ip);
+            } else {
+                candidates.push(ip);
+            }
+        }
+    }
+    
+    candidates.first()
+        .cloned()
+        .ok_or_else(|| "Không tìm thấy địa chỉ IP".to_string())
 }
 
 #[tauri::command]

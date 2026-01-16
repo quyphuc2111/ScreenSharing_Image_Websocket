@@ -36,7 +36,7 @@ image = "0.25"
 base64 = "0.22"
 
 # Get local IP
-local-ip-address = "0.6"
+if-addrs = "0.13"
 
 # Logging
 log = "0.4"
